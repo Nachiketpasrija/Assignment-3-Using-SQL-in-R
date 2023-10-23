@@ -1,0 +1,78 @@
+# Load the required packages
+library(RODBC)
+library(ggplot2)
+library(dplyr)
+library(scales)  # Load the scales package for formatting labels
+
+# Define the ODBC connection
+db_connection <- odbcConnect("AdventureWorksDSN")
+
+# SQL query to find regional sales
+query_1 <- "
+SELECT t.[Group], SUM(d.LineTotal) AS Total_Regional_Sales
+FROM [Sales].[SalesOrderHeader] h
+JOIN [Sales].[SalesOrderDetail] d ON h.SalesOrderID = d.SalesOrderID
+JOIN [Sales].[SalesTerritory] t ON h.TerritoryID = t.TerritoryID
+GROUP BY t.[Group]
+ORDER BY Total_Regional_Sales DESC;
+"
+
+# Execute the query and fetch the results
+result_1 <- sqlQuery(db_connection, query_1)
+
+# Calculate the percentages and create a new column with labels
+result_1$percentage <- result_1$Total_Regional_Sales / sum(result_1$Total_Regional_Sales) * 100
+result_1$label <- ifelse(result_1$percentage >= 5, 
+                        paste(result_1$`Group`, scales::comma(round(result_1$percentage)), "%"), 
+                        "")
+
+# Create a pie chart for Total Regional Sales with labels for selected data points
+pie_chart <- ggplot(result_1, aes(x = "", y = Total_Regional_Sales, fill = `Group`)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  labs(title = "Total Regional Sales by Group (Pie Chart)",
+       fill = NULL,
+       x = NULL,
+       y = NULL) +
+  scale_fill_brewer(palette = "Set1") +  # You can change the palette as needed
+  geom_text(aes(label = label),
+            nudge_y = 0.2) +  # Adjust the 'nudge_y' value to set labels outside the boundary
+  theme_minimal() +
+  theme(legend.position = "right")  # Move the legend to the right
+
+# Print the pie chart
+print(pie_chart)
+# SQL query to find the most sold products
+query_2 <- "
+SELECT p.Name, SUM(d.LineTotal) AS total_sold, SUM(d.LineTotal - d.UnitPrice * d.OrderQty) AS total_profit
+FROM [Sales].[SalesOrderDetail] d
+JOIN [Production].[Product] p ON d.ProductID = p.ProductID
+GROUP BY p.Name
+ORDER BY total_sold DESC;
+"
+
+# Execute the query and fetch the results for query 2
+result_2 <- sqlQuery(db_connection, query_2)
+
+# Define the product names to combine on the y-axis
+combined_products <- c("Mountain Bottle Cage", "ML Road Tire", "ML Mountain Tire", "LL Road Tire", "LL Mountain Tire",
+                       "Touring Tire", "HL Road Tire", "All-Purpose Bike Stand", "HL Mountain Tire", "Fender Set - Mountain")
+
+# Filter the results to include only the specified products
+filtered_result <- result_2[result_2$Name %in% combined_products, ]
+
+# Reorder the product names based on their order in 'combined_products'
+filtered_result$Name <- factor(filtered_result$Name, levels = combined_products)
+
+# Create a horizontal bar chart for the specified products with both sales and profit
+combined_bar_chart <- ggplot(filtered_result, aes(x = total_sold, y = Name)) +
+  geom_col(aes(fill = "Total Sales"), position = position_dodge(width = 0.75)) +
+  geom_col(aes(x = total_profit, fill = "Total Profit"), position = position_dodge(width = -0.75)) +
+  labs(title = "Combined Sales and Profit for Selected Products",
+       x = "Value",
+       y = "Product Name") +
+  scale_fill_manual(values = c("Total Sales" = "navyblue", "Total Profit" = "orange")) +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+print(combined_bar_chart)
